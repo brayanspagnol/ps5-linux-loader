@@ -89,8 +89,11 @@ int puts_uart(uint64_t dmap, const uint8_t *msg) {
 void activate_uart(volatile shellcode_kernel_args *args_ptr) {
   uint32_t *uart_va = (uint32_t *)(args_ptr->dmap_base + 0xC0115110ULL);
   *uart_va &= ~0x200;
+#if !defined(FW_1160)
+  // 11.60 has no UART override offset.
   uint32_t *override_char_va = (uint32_t *)args_ptr->kernel_uart_override;
   *override_char_va = 0x0;
+#endif
 }
 
 void halt(void) { __asm__ __volatile__("hlt"); }

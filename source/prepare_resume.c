@@ -1,13 +1,16 @@
 #include "prepare_resume.h"
 #include "../shellcode_kernel/shellcode_kernel.h"
 #include "../shellcode_kernel/shellcode_kernel_args.h"
+#include "../shellcode_kernel_1160/shellcode_kernel_args_validate.h"
 #include "config.h"
 #include "hv_defeat_13xx.h"
 #include "iommu.h"
+#include "loader_staging_1160.h"
 #include "offsets.h"
 #include "shellcode_1360.h"
 #include "utils.h"
 #include "../shellcode_kernel_13xx/shellcode_kernel_13xx.h"
+#include "../shellcode_kernel_1160/shellcode_kernel_1160.h"
 #include <fcntl.h>
 #include <stdio.h>
 #include <sys/mman.h>
@@ -39,6 +42,57 @@ static int apply_1360_dma_e820_map(void *buffer, size_t length) {
     memcpy(code + patches[i].offset, &patches[i].replacement,
            sizeof(patches[i].replacement));
 
+  return 0;
+}
+
+// Set RW and clear XO on va's page chain, checking every write. 11.60 only.
+static int page_chain_set_rw_checked_1160(uint64_t va) {
+  uint64_t table_phys = cr3;
+
+  for (int level = 0; level < 4; level++) {
+    int shift = 39 - level * 9;
+    uint64_t index = (va >> shift) & 0x1ff;
+    uint64_t entry_va = dmap + PAGE_PA(table_phys) + index * 8;
+    uint64_t entry = 0;
+
+    if (kernel_copyout(entry_va, &entry, sizeof(entry)) != 0 || !PAGE_P(entry))
+      return -1;
+
+    uint64_t updated = entry;
+    PAGE_SET_RW(updated);
+    PAGE_CLEAR_XO(updated);
+    if (updated != entry) {
+      uint64_t observed = 0;
+      if (kernel_copyin(&updated, entry_va, sizeof(updated)) != 0 ||
+          kernel_copyout(entry_va, &observed, sizeof(observed)) != 0 ||
+          observed != updated)
+        return -1;
+      entry = updated;
+    }
+
+    if (((level == 1 || level == 2) && PAGE_PS(entry)) || level == 3)
+      return 0;
+    table_phys = PAGE_PA(entry);
+  }
+  return -1;
+}
+
+/*
+ * 11.60 only opens the places the handoff writes: the CFI byte the wake blob
+ * patches and the code cave the resume ROP fills. Executing XOM text does not
+ * need it readable or writable, so the rest of ktext is left alone.
+ */
+static int remove_xotext_1160(size_t wake_len) {
+  if (env_offset.KERNEL_CFI_CHECK == 0 || env_offset.KERNEL_CODE_CAVE == 0 ||
+      wake_len == 0 || wake_len > 0x5000)
+    return -1;
+
+  if (page_chain_set_rw_checked_1160(ktext + env_offset.KERNEL_CFI_CHECK))
+    return -1;
+  for (size_t offset = 0; offset < wake_len; offset += 0x1000)
+    if (page_chain_set_rw_checked_1160(ktext + env_offset.KERNEL_CODE_CAVE +
+                                       offset))
+      return -1;
   return 0;
 }
 
@@ -110,9 +164,14 @@ int prepare_resume(void **shellcode_kernel, size_t *shellcode_kernel_len) {
   } else if (fw == 0x1360 && linux_i.kit_type != KIT_RETAIL_PRO) {
     shellcode_src = stock_shellcode_kernel_1360;
     shellcode_len = stock_shellcode_kernel_1360_len;
+  } else if (fw == 0x1160) {
+    shellcode_src = shellcode_kernel_1160_bin;
+    shellcode_len = shellcode_kernel_1160_bin_len;
   }
 
   if ((fw == 0x1300 || fw == 0x1320) && shellcode_len > 0x3910)
+    return -1;
+  if (fw == 0x1160 && shellcode_len > 0x5000)
     return -1;
 
   *shellcode_kernel =
@@ -139,7 +198,7 @@ int prepare_resume(void **shellcode_kernel, size_t *shellcode_kernel_len) {
                          vtophys_user((uintptr_t)*shellcode_kernel + i), 0);
   }
 
-  if (remove_xotext()) {
+  if (fw == 0x1160 ? remove_xotext_1160(shellcode_len) : remove_xotext()) {
     printf("Error: could not remove xo from text\n");
     return -1;
   }
@@ -206,7 +265,14 @@ uint64_t prepare_sck_args(void) {
 
   args.linux_info_va = linux_i.linux_info;
 
+  if (fw == 0x1160 && validate_shellcode_kernel_args_1160(&args))
+    return 0;
+
   uint64_t args_pa = alloc_page();
+  // Keep the args page off the page under the #SX stack, which the wake stack
+  // reaches past 0x1040 bytes. Pages taken here stay allocated.
+  while (fw == 0x1160 && args_pa && pa_under_sx_stack_1160(args_pa))
+    args_pa = alloc_page();
   if (!args_pa)
     return 0;
 
@@ -215,6 +281,8 @@ uint64_t prepare_sck_args(void) {
   if (kernel_copyin(&args, args_cave, sizeof(args)) ||
       kernel_copyout((intptr_t)args_cave, &readback, sizeof(readback)) ||
       memcmp(&args, &readback, sizeof(args)))
+    return 0;
+  if (fw == 0x1160 && validate_shellcode_kernel_args_1160(&readback))
     return 0;
 
   return args_cave;

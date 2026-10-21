@@ -1,11 +1,23 @@
 #include "hv_defeat_0304.h"
 #include "hv_defeat_0506.h"
 #include "hv_defeat_0607.h"
+#include "hv_defeat_1160.h"
 #include "hv_defeat_13xx.h"
 #include "loader.h"
 #include "prepare_resume.h"
 #include "utils.h"
 #include <unistd.h>
+
+// 11.60 keeps page tables from this process linked into PID 1 once the Linux
+// files are staged, so it must not exit after that.
+static int fail_after_staging(void) {
+  if (fw == 0x1160) {
+    notify("Linux files are still staged. Cold reboot before trying again.\n");
+    while (1)
+      sleep(30);
+  }
+  return -1;
+}
 
 int main(void) {
   if (setup_env()) {
@@ -23,7 +35,7 @@ int main(void) {
   size_t shellcode_kernel_len;
   if (prepare_resume(&shellcode_kernel, &shellcode_kernel_len)) {
     notify("Something went wrong while preparing resume.\n");
-    return -1;
+    return fail_after_staging();
   }
 
   if ((0x0300 <= fw) && (fw < 0x0500)) {
@@ -37,6 +49,9 @@ int main(void) {
       goto err;
   } else if (fw == 0x1300 || fw == 0x1320 || fw == 0x1360) {
     if (hv_defeat_13xx(shellcode_kernel, shellcode_kernel_len))
+      goto err;
+  } else if (fw == 0x1160) {
+    if (hv_defeat_1160(shellcode_kernel, shellcode_kernel_len))
       goto err;
   } else {
     goto err;
@@ -58,5 +73,5 @@ int main(void) {
 err:
   notify("Something went wrong while defeating Hypervisor.\nPlease make sure "
          "your fw is supported.");
-  return -1;
+  return fail_after_staging();
 }

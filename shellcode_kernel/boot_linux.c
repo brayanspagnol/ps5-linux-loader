@@ -60,7 +60,7 @@ struct dig_transmitter_control_parameters_v1_6 {
 
 static struct linux_info info;
 
-#if defined(FW_13XX_PORT)
+#if defined(FW_13XX_PORT) || defined(FW_1160)
 static int *mp3_req, *mp3_rsp;
 #else
 static int mp3_req[1281], mp3_rsp[1282];
@@ -70,7 +70,7 @@ static inline void stac(void) { __asm__ volatile("stac" : : : "cc"); }
 
 static inline void clac(void) { __asm__ volatile("clac" : : : "cc"); }
 
-#if defined(FW_13XX_PORT)
+#if defined(FW_13XX_PORT) || defined(FW_1160)
 static uint64_t read_tsc(void) {
   uint32_t lo, hi;
   __asm__ volatile("rdtsc" : "=a"(lo), "=d"(hi));
@@ -200,7 +200,7 @@ void patch_hv(void) {
 }
 
 void boot_linux(void) {
-#if defined(FW_13XX_PORT)
+#if defined(FW_13XX_PORT) || defined(FW_1160)
   mp3_rsp = (int *)(args.linux_info_va + 0x1000);
   mp3_req = (int *)(args.linux_info_va + 0x2420);
 #endif
@@ -215,7 +215,7 @@ void boot_linux(void) {
   // Enable DP phys link.
   dp_enable_link_phy(4, 30);
 
-#if defined(FW_13XX_PORT)
+#if defined(FW_13XX_PORT) || defined(FW_1160)
   uint64_t start = read_tsc();
   while (read_tsc() - start < 0x14DC937FULL)
     __asm__ volatile("pause");
@@ -229,7 +229,12 @@ void boot_linux(void) {
   // Copy bzImage and initrd into contiguous memory.
   memcpy(&info, (void *)args.linux_info_va, sizeof(struct linux_info));
 
-#if !defined(FW_13XX_PORT)
+#if defined(FW_1160)
+  // The HV in the 13.60 stock wake blob reserves this range too.
+  info.tmrs[0].start = 0x980000000ULL;
+  info.tmrs[0].end = 0xa00000000ULL;
+  info.n_tmrs = 1;
+#elif !defined(FW_13XX_PORT)
   info.n_tmrs = 0;
   if (args.fw_version >= 0x0500 && args.fw_version < 0x0800) {
     SceSblHvShm *shm = (SceSblHvShm *)PHYS_TO_DMAP(get_hv_shm());

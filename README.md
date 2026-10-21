@@ -24,6 +24,7 @@ Features:
 - **5.00**, **5.02**, **5.10**, **5.50** with M.2 support
 - **6.00**, **6.02**, **6.50** with M.2 support
 - **7.00**, **7.01**, **7.20**, **7.40**, **7.60**, **7.61** with M.2 support
+- **11.60** (regular PS5 only, M.2 not tested yet; the kernel needs KASLR, so do not pass `nokaslr`, `mem=` or `memmap=`)
 - **13.00**, **13.20**, **13.60** with M.2 support
 
 **PS5 Pro:**
@@ -331,3 +332,4 @@ Join our [Discord server](https://discord.gg/PeMGVB7BAm) to celebrate Linux on P
 - [kirathenotebook](https://github.com/kirathenotebook): Betatesting and readme contribution
 - 15432: Tests on BC-250
 - [DeathlySin](https://github.com/DeathlySin): PS5 Pro support (E820 memory map, I/O fix)
+- [gzimbric](https://github.com/gzimbric): 11.60 support, building on the 13.xx work of Ouroboros, DeathlySin and Sonic, with a startup-AP payload based on SpecterDev's Byepervisor

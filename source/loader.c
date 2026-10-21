@@ -2,6 +2,7 @@
 #include "config.h"
 #include "firmware.h"
 #include "linux.h"
+#include "loader_staging_1160.h"
 #include "utils.h"
 #include <fcntl.h>
 #include <stdio.h>
@@ -202,6 +203,26 @@ int fetch_linux(struct linux_info *info) {
   info->vram_size = vram_size;
   info->kit_type = (int)get_kit_type();
   strcpy(info->cmdline, cmdline);
+
+  if (fw == 0x1160) {
+    // 11.60 stages the aliases with a checked, journaled transaction instead
+    // of the install_page_syscore loop below.
+    int staged = stage_linux_aliases_1160(
+        info, bzimage, ALIGN_UP(bzimage_size, PAGE_SIZE), initrd,
+        ALIGN_UP(initrd_size, PAGE_SIZE));
+    if (staged) {
+      if (staged == STAGING_REBOOT_FIRST_1160)
+        notify("11.60 Linux alias staging failed. Nothing is armed. Cold "
+               "reboot before trying again.\n");
+      else
+        notify("11.60 Linux alias staging failed. Nothing is armed, so the "
+               "loader can be run again.\n");
+      munmap(initrd, ALIGN_UP(initrd_size, PAGE_SIZE));
+      munmap(bzimage, ALIGN_UP(bzimage_size, PAGE_SIZE));
+      return -1;
+    }
+    return 0;
+  }
 
   uint64_t page = alloc_page();
   kwrite(pa_to_dmap(page), info, sizeof(struct linux_info));
