@@ -23,6 +23,9 @@
  * wake blob from its prepare_resume() alias into the kernel code cave.
  */
 
+#define FW_1100_RAW 0x11000043U
+#define FW_1120_RAW 0x11200005U
+#define FW_1140_RAW 0x11400005U
 #define FW_1160_RAW 0x11600005U
 #define PS5_PRO_SOC_ID 0x840fd0
 #define NCPU 16
@@ -118,7 +121,20 @@ static int offsets_present(void) {
       env_offset.FUN_MP3_INVOKE,
   };
 
-  if (kernel_get_fw_version() != FW_1160_RAW || fw != 0x1160)
+  uint32_t expected_raw = 0;
+
+  switch (fw) {
+  case 0x1100: expected_raw = FW_1100_RAW; break;
+  case 0x1120: expected_raw = FW_1120_RAW; break;
+  case 0x1140: expected_raw = FW_1140_RAW; break;
+  case 0x1160: expected_raw = FW_1160_RAW; break;
+  default: return 0;
+  }
+  if (kernel_get_fw_version() != expected_raw)
+    return 0;
+  /* Every 11.x build shares the same hypervisor image and CC cave. */
+  if (env_offset.HV_CODE_CAVE_PA != 0x62806F00ULL ||
+      env_offset.HV_HANDLE_VMEXIT_PA != 0x62847551ULL)
     return 0;
   if (env_offset.KERNEL_CODE_CAVE != 0xD2B000ULL ||
       env_offset.DATA_CAVE != 0x2D02000ULL)
@@ -532,10 +548,6 @@ int hv_defeat_1160(void *shellcode_kernel, size_t shellcode_kernel_len) {
 
   if (shellcode_kernel == NULL || !offsets_present()) {
     notify("11.60 offsets/raw firmware gate failed; refusing to arm\n");
-    return -1;
-  }
-  if (sceKernelGetMainSocId() == PS5_PRO_SOC_ID) {
-    notify("11.60 AP payload refused on unvalidated PS5 Pro layout\n");
     return -1;
   }
   if (validate_wake_cave(shellcode_kernel_len)) {

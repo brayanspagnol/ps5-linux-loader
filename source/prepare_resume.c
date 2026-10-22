@@ -164,14 +164,14 @@ int prepare_resume(void **shellcode_kernel, size_t *shellcode_kernel_len) {
   } else if (fw == 0x1360 && linux_i.kit_type != KIT_RETAIL_PRO) {
     shellcode_src = stock_shellcode_kernel_1360;
     shellcode_len = stock_shellcode_kernel_1360_len;
-  } else if (fw == 0x1160) {
+  } else if (PS5_FW_IS_11XX(fw)) {
     shellcode_src = shellcode_kernel_1160_bin;
     shellcode_len = shellcode_kernel_1160_bin_len;
   }
 
   if ((fw == 0x1300 || fw == 0x1320) && shellcode_len > 0x3910)
     return -1;
-  if (fw == 0x1160 && shellcode_len > 0x5000)
+  if (PS5_FW_IS_11XX(fw) && shellcode_len > 0x5000)
     return -1;
 
   *shellcode_kernel =
@@ -198,7 +198,7 @@ int prepare_resume(void **shellcode_kernel, size_t *shellcode_kernel_len) {
                          vtophys_user((uintptr_t)*shellcode_kernel + i), 0);
   }
 
-  if (fw == 0x1160 ? remove_xotext_1160(shellcode_len) : remove_xotext()) {
+  if (PS5_FW_IS_11XX(fw) ? remove_xotext_1160(shellcode_len) : remove_xotext()) {
     printf("Error: could not remove xo from text\n");
     return -1;
   }
@@ -256,7 +256,8 @@ uint64_t prepare_sck_args(void) {
   args.kernel_cfi_check = ktext + env_offset.KERNEL_CFI_CHECK;
   args.hv_handle_vmexit_pa = env_offset.HV_HANDLE_VMEXIT_PA;
   args.hv_code_cave_pa = env_offset.HV_CODE_CAVE_PA;
-  if ((fw == 0x1320 || fw == 0x1360) && linux_i.kit_type == KIT_RETAIL_PRO) {
+  if ((PS5_FW_IS_11XX(fw) || fw == 0x1320 || fw == 0x1360) &&
+      linux_i.kit_type == KIT_RETAIL_PRO) {
     uint64_t pro_base = derive_h() + HV_CODE_OFFSET_PRO;
     uint64_t hv_offset = pro_base - HV_BASE_REGULAR;
     args.hv_handle_vmexit_pa += hv_offset;
@@ -265,13 +266,13 @@ uint64_t prepare_sck_args(void) {
 
   args.linux_info_va = linux_i.linux_info;
 
-  if (fw == 0x1160 && validate_shellcode_kernel_args_1160(&args))
+  if (PS5_FW_IS_11XX(fw) && validate_shellcode_kernel_args_1160(&args))
     return 0;
 
   uint64_t args_pa = alloc_page();
   // Keep the args page off the page under the #SX stack, which the wake stack
   // reaches past 0x1040 bytes. Pages taken here stay allocated.
-  while (fw == 0x1160 && args_pa && pa_under_sx_stack_1160(args_pa))
+  while (PS5_FW_IS_11XX(fw) && args_pa && pa_under_sx_stack_1160(args_pa))
     args_pa = alloc_page();
   if (!args_pa)
     return 0;
@@ -282,7 +283,7 @@ uint64_t prepare_sck_args(void) {
       kernel_copyout((intptr_t)args_cave, &readback, sizeof(readback)) ||
       memcmp(&args, &readback, sizeof(args)))
     return 0;
-  if (fw == 0x1160 && validate_shellcode_kernel_args_1160(&readback))
+  if (PS5_FW_IS_11XX(fw) && validate_shellcode_kernel_args_1160(&readback))
     return 0;
 
   return args_cave;

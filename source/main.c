@@ -2,6 +2,7 @@
 #include "hv_defeat_0506.h"
 #include "hv_defeat_0607.h"
 #include "hv_defeat_1160.h"
+#include "config.h"
 #include "hv_defeat_13xx.h"
 #include "loader.h"
 #include "prepare_resume.h"
@@ -11,7 +12,7 @@
 // 11.60 keeps page tables from this process linked into PID 1 once the Linux
 // files are staged, so it must not exit after that.
 static int fail_after_staging(void) {
-  if (fw == 0x1160) {
+  if (PS5_FW_IS_11XX(fw)) {
     notify("Linux files are still staged. Cold reboot before trying again.\n");
     while (1)
       sleep(30);
@@ -50,7 +51,7 @@ int main(void) {
   } else if (fw == 0x1300 || fw == 0x1320 || fw == 0x1360) {
     if (hv_defeat_13xx(shellcode_kernel, shellcode_kernel_len))
       goto err;
-  } else if (fw == 0x1160) {
+  } else if (PS5_FW_IS_11XX(fw)) {
     if (hv_defeat_1160(shellcode_kernel, shellcode_kernel_len))
       goto err;
   } else {
